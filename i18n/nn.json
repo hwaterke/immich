@@ -242,7 +242,7 @@
   "contain": "Tilpass til vindauget",
   "context": "Samanheng",
   "continue": "Hald fram",
-  "control_bottom_app_bar_album_info_shared": "{} element · Delt",
+  "control_bottom_app_bar_album_info_shared": "{count} element · Delt",
   "control_bottom_app_bar_create_new_album": "Lag nytt album",
   "country": "Land",
   "cover": "Dekk",
