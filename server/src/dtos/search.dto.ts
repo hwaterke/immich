@@ -8,7 +8,25 @@ import { AssetResponseDto } from 'src/dtos/asset-response.dto';
 import { AssetOrder, AssetType, AssetVisibility } from 'src/enum';
 import { Optional, ValidateAssetVisibility, ValidateBoolean, ValidateDate, ValidateUUID } from 'src/validation';
 
+type FieldFilter = {
+  albumId?: string | string[];
+  personId?: string | string[];
+  tagId?: string | string[];
+};
+
+type FilterGroup = {
+  and?: FilterNode[];
+  or?: FilterNode[];
+  not?: FilterNode;
+};
+
+type FilterNode = FieldFilter | FilterGroup;
+
 class BaseSearchDto {
+  @ApiProperty({ nullable: true })
+  @Optional()
+  filter?: FilterNode;
+
   @ValidateUUID({ optional: true, nullable: true })
   libraryId?: string | null;
 
