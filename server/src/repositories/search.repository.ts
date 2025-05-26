@@ -116,7 +116,21 @@ type BaseAssetSearchOptions = SearchDateOptions &
   SearchAlbumOptions &
   SearchTagOptions;
 
-export type AssetSearchOptions = BaseAssetSearchOptions & SearchRelationOptions;
+export type FieldFilter = {
+  albumId?: string | string[];
+  personId?: string | string[];
+  tagId?: string | string[];
+};
+
+export type FilterGroup = {
+  and?: FilterNode[];
+  or?: FilterNode[];
+  not?: FilterNode;
+};
+
+export type FilterNode = FieldFilter | FilterGroup;
+
+export type AssetSearchOptions = BaseAssetSearchOptions & SearchRelationOptions & { filter?: FilterNode };
 
 export type AssetSearchBuilderOptions = Omit<AssetSearchOptions, 'orderDirection'>;
 
@@ -190,11 +204,14 @@ export class SearchRepository {
   })
   async searchMetadata(pagination: SearchPaginationOptions, options: AssetSearchOptions) {
     const orderDirection = (options.orderDirection?.toLowerCase() || 'desc') as OrderByDirection;
-    const items = await searchAssetBuilder(this.db, options)
+    const query = searchAssetBuilder(this.db, options)
       .orderBy('assets.fileCreatedAt', orderDirection)
       .limit(pagination.size + 1)
-      .offset((pagination.page - 1) * pagination.size)
-      .execute();
+      .offset((pagination.page - 1) * pagination.size);
+
+    console.log('Search metadata query:', query.compile().sql);
+
+    const items = await query.execute();
 
     return paginationHelper(items, pagination.size);
   }

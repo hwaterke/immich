@@ -19,7 +19,7 @@ import { columns, Exif, Person } from 'src/database';
 import { DB } from 'src/db';
 import { AssetFileType, AssetVisibility, DatabaseExtension, DatabaseSslMode } from 'src/enum';
 import { TimeBucketSize } from 'src/repositories/asset.repository';
-import { AssetSearchBuilderOptions } from 'src/repositories/search.repository';
+import { AssetSearchBuilderOptions, FilterNode } from 'src/repositories/search.repository';
 import { DatabaseConnectionParams, VectorExtension } from 'src/types';
 
 type Ssl = 'require' | 'allow' | 'prefer' | 'verify-full' | boolean | object;
@@ -287,7 +287,73 @@ export function withTagId<O>(qb: SelectQueryBuilder<DB, 'assets', O>, tagId: str
 }
 
 const joinDeduplicationPlugin = new DeduplicateJoinsPlugin();
-/** TODO: This should only be used for search-related queries, not as a general purpose query builder */
+
+function buildAssetFilterExpression(
+  eb: ExpressionBuilder<DB, 'assets'>,
+  node: FilterNode,
+): ReturnType<(typeof eb)['and']> {
+  if ('and' in node) {
+    return eb.and(node.and!.map((sub) => buildAssetFilterExpression(eb, sub)));
+  }
+
+  if ('or' in node) {
+    return eb.or(node.or!.map((sub) => buildAssetFilterExpression(eb, sub)));
+  }
+
+  if ('not' in node) {
+    return eb.not(buildAssetFilterExpression(eb, node.not!));
+  }
+
+  // Handle leaf nodes with multiple properties
+  const conditions: ReturnType<(typeof eb)['and']>[] = [];
+
+  if ('albumId' in node && node.albumId) {
+    const values = Array.isArray(node.albumId) ? node.albumId : [node.albumId];
+    conditions.push(
+      eb.exists((eb) =>
+        eb
+          .selectFrom('albums_assets_assets')
+          .select('albumsId')
+          .whereRef('albums_assets_assets.assetsId', '=', 'assets.id')
+          .where('albums_assets_assets.albumsId', '=', anyUuid(values)),
+      ),
+    );
+  }
+
+  if ('personId' in node && node.personId) {
+    const values = Array.isArray(node.personId) ? node.personId : [node.personId];
+    conditions.push(
+      eb.exists((eb) =>
+        eb
+          .selectFrom('asset_faces')
+          .select('assetId')
+          .whereRef('asset_faces.assetId', '=', 'assets.id')
+          .where('personId', '=', anyUuid(values))
+          .where('deletedAt', 'is', null),
+      ),
+    );
+  }
+
+  if ('tagId' in node && node.tagId) {
+    const values = Array.isArray(node.tagId) ? node.tagId : [node.tagId];
+    conditions.push(
+      eb.exists((eb) =>
+        eb
+          .selectFrom('tag_asset')
+          .select('assetsId')
+          .innerJoin('tags_closure', 'tag_asset.tagsId', 'tags_closure.id_descendant')
+          .whereRef('tag_asset.assetsId', '=', 'assets.id')
+          .where('tags_closure.id_ancestor', '=', anyUuid(values)),
+      ),
+    );
+  }
+
+  if (conditions.length === 0) {
+    throw new Error(`Unsupported filter node: ${JSON.stringify(node)}`);
+  }
+
+  return eb.and(conditions);
+}
 
 export function searchAssetBuilder(kysely: Kysely<DB>, options: AssetSearchBuilderOptions) {
   options.withDeleted ||= !!(options.trashedAfter || options.trashedBefore || options.isOffline);
@@ -298,6 +364,7 @@ export function searchAssetBuilder(kysely: Kysely<DB>, options: AssetSearchBuild
     .selectFrom('assets')
     .selectAll('assets')
     .where('assets.visibility', '=', visibility)
+    .$if(!!options.filter, (qb) => qb.where((eb) => buildAssetFilterExpression(eb, options.filter!)))
     .$if(!!options.tagIds && options.tagIds.length > 0, (qb) => hasTags(qb, options.tagIds!))
     .$if(!!options.personIds && options.personIds.length > 0, (qb) => hasPeople(qb, options.personIds!))
     .$if(!!options.createdBefore, (qb) => qb.where('assets.createdAt', '<=', options.createdBefore!))
